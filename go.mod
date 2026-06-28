@@ -1,3 +1,3 @@
-module github.com/christianrojas/logsift
+module github.com/imchristianrojas/logsift
 
-go 1.26.4
+go 1.26
