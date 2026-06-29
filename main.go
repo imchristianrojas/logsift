@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
 	"runtime"
+
+	"github.com/imchristianrojas/logsift/internal/aggregator"
+	"github.com/imchristianrojas/logsift/internal/output"
+	"github.com/imchristianrojas/logsift/internal/parser"
+	"github.com/imchristianrojas/logsift/internal/pool"
 )
 
 func main() {
@@ -29,4 +35,42 @@ func main() {
 		os.Exit(1)
 	}
 
+	// RunChunked is the large-file path: it reads the file in big byte blocks
+	// and parses them across `workers` goroutines. See internal/pool/largefile.go.
+	stats, err := pool.RunChunked(*file, *workers)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+
+	if err := output.Write(os.Stdout, stats, *format); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
+}
+
+func runSequential(path string) (*aggregator.Stats, error) {
+	logFile, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("opening log file: %w", err)
+	}
+	defer logFile.Close()
+
+	stats := aggregator.New()
+	scanner := bufio.NewScanner(logFile)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		entry, err := parser.Parse(line)
+		if err != nil {
+			stats.AddBadLine()
+			continue
+		}
+		stats.Add(entry)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading log file: %w", err)
+	}
+
+	return stats, nil
 }
