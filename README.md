@@ -23,11 +23,12 @@ go run . --file access.log
 logsift --file <path> [--format table|text|json] [--workers N]
 ```
 
-| Flag        | Default            | Description                                         |
-| ----------- | ------------------ | --------------------------------------------------- |
-| `--file`    | *(required)*       | Path to the log file to analyze.                    |
-| `--format`  | `table`            | Output format: `table`, `text`, or `json`.          |
-| `--workers` | `runtime.NumCPU()` | Number of parser goroutines.                        |
+| Flag           | Default            | Description                                                  |
+| -------------- | ------------------ | ----------------------------------------------------------- |
+| `--file`       | *(required)*       | Path to the log file to analyze.                            |
+| `--format`     | `table`            | Output format: `table`, `text`, or `json`.                  |
+| `--workers`    | `runtime.NumCPU()` | Number of parser goroutines.                                |
+| `--chunk-size` | `1MiB`             | Block size for the reader (e.g. `256KiB`, `1MiB`, `4MiB`). |
 
 ### Example
 
@@ -111,6 +112,40 @@ logsift: 500k-line access log
 
 > Measured on an AMD Ryzen 7 3700X (16 threads). Your numbers will differ; run
 > it yourself with the commands below.
+
+### Why chunked wins
+
+Both `Concurrent` and `Chunked` run the *same* per-line parser in parallel — the
+difference is the unit handed across the channel. `Concurrent` sends one line
+per channel op (~500k tiny synchronized handoffs) and splits every line on the
+single producer goroutine. `Chunked` sends one ~1 MiB block (~10k lines) per op
+(~50 handoffs) and pushes the line-splitting *into* the parallel workers. Fewer
+handoffs plus more parallelized work is the whole speedup.
+
+### Tuning the block size
+
+`--chunk-size` controls that block. It's a trade-off, not a "bigger is better"
+knob: too small and you pay per-send overhead; too large and there aren't enough
+blocks to keep every worker busy, so the slowest one becomes a straggler at the
+tail. The sweep below (16 threads) shows the sweet spot sits around 1–4 MiB:
+
+```
+chunk-size sweep (500k lines)
+
+  16MiB   ████████████████████████████████████████████   507.1 ms  (1.0x)
+  64KiB   ████████████████████████····················   281.2 ms  (1.8x)
+  256KiB  ██████████████████████······················   256.7 ms  (2.0x)
+  4MiB    ███████████████████·························   217.7 ms  (2.3x)
+  1MiB    ██████████████████··························   212.7 ms  (2.4x)
+```
+
+![chunk-size sweep](bench-sweep.png)
+
+Run the sweep yourself:
+
+```sh
+go test -bench=BenchmarkChunkedSizes -benchmem -run='^$' -count=1 .
+```
 
 ### Reproducing
 

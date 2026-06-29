@@ -21,13 +21,24 @@ const defaultChunkSize = 1 << 20 // 1 MiB
 // instead of one line at a time. For very large files this turns millions of
 // tiny channel sends into a few thousand big ones, which is a large speedup.
 func RunChunked(path string, workers int) (*aggregator.Stats, error) {
+	return RunChunkedSize(path, workers, defaultChunkSize)
+}
+
+// RunChunkedSize is RunChunked with an explicit block size. A chunkSize <= 0
+// falls back to defaultChunkSize. Larger blocks mean fewer, bigger channel
+// sends (less overhead) but fewer units to spread across workers (worse load
+// balancing at the tail); see the benchmark sweep in BenchmarkChunkedSizes.
+func RunChunkedSize(path string, workers, chunkSize int) (*aggregator.Stats, error) {
+	if chunkSize <= 0 {
+		chunkSize = defaultChunkSize
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	return runChunked(f, workers, defaultChunkSize)
+	return runChunked(f, workers, chunkSize)
 }
 
 // runChunked is the testable core: it reads from any io.Reader and takes an

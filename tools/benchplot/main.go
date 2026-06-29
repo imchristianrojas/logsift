@@ -94,13 +94,18 @@ func parse(r *os.File) ([]result, error) {
 }
 
 // cleanName strips the "Benchmark" prefix and the "-N" GOMAXPROCS suffix that
-// `go test` appends, e.g. "BenchmarkChunked-16" -> "Chunked".
+// `go test` appends, then keeps only the leaf of a sub-benchmark path, e.g.
+// "BenchmarkChunked-16" -> "Chunked" and
+// "BenchmarkChunkedSizes/16MiB-16" -> "16MiB".
 func cleanName(s string) string {
 	s = strings.TrimPrefix(s, "Benchmark")
 	if i := strings.LastIndexByte(s, '-'); i >= 0 {
 		if _, err := strconv.Atoi(s[i+1:]); err == nil {
 			s = s[:i]
 		}
+	}
+	if i := strings.LastIndexByte(s, '/'); i >= 0 {
+		s = s[i+1:]
 	}
 	return s
 }

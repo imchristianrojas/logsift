@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/imchristianrojas/logsift/internal/aggregator"
 	"github.com/imchristianrojas/logsift/internal/output"
@@ -13,11 +15,45 @@ import (
 	"github.com/imchristianrojas/logsift/internal/pool"
 )
 
+// parseSize converts a human-friendly size like "256KiB", "1MiB", "4M", or a
+// plain byte count like "1048576" into a number of bytes. Suffixes are binary
+// (1 KiB = 1024). The "iB"/"B" tail is optional, so "4M" == "4MiB".
+func parseSize(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty size")
+	}
+
+	mult := 1
+	// Strip an optional trailing "b"/"ib", then a unit letter.
+	u := strings.ToLower(s)
+	u = strings.TrimSuffix(u, "b")
+	u = strings.TrimSuffix(u, "i")
+	switch {
+	case strings.HasSuffix(u, "k"):
+		mult, u = 1<<10, strings.TrimSuffix(u, "k")
+	case strings.HasSuffix(u, "m"):
+		mult, u = 1<<20, strings.TrimSuffix(u, "m")
+	case strings.HasSuffix(u, "g"):
+		mult, u = 1<<30, strings.TrimSuffix(u, "g")
+	}
+
+	n, err := strconv.Atoi(strings.TrimSpace(u))
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a valid size", s)
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("size must be positive")
+	}
+	return n * mult, nil
+}
+
 func main() {
 
 	file := flag.String("file", "", "path to log file (required)")
 	workers := flag.Int("workers", 0, "number of workers goroutines to use (default: runtime.NumCPU())") //NumCPU returns the number of logical CPUs usable by the current process.
 	format := flag.String("format", "table", "output format (default: table)")
+	chunkSize := flag.String("chunk-size", "1MiB", "block size for the chunked reader (e.g. 256KiB, 1MiB, 4MiB)")
 
 	flag.Parse()
 
@@ -35,9 +71,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// RunChunked is the large-file path: it reads the file in big byte blocks
-	// and parses them across `workers` goroutines. See internal/pool/largefile.go.
-	stats, err := pool.RunChunked(*file, *workers)
+	chunkBytes, err := parseSize(*chunkSize)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: invalid --chunk-size:", err)
+		os.Exit(1)
+	}
+
+	// RunChunkedSize is the large-file path: it reads the file in fixed byte
+	// blocks and parses them across `workers` goroutines. See
+	// internal/pool/largefile.go.
+	stats, err := pool.RunChunkedSize(*file, *workers, chunkBytes)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
