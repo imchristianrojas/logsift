@@ -114,8 +114,8 @@ Three strategies are benchmarked against the same 500k-line / ~50 MB log:
 logsift: 500k-line access log
 
   Sequential  ████████████████████████████████████████████    1.448 s  (1.0x)
-  Concurrent  ██████████████······························   457.1 ms  (3.2x)
-  Chunked     ███████·····································   221.0 ms  (6.6x)
+  Concurrent  ██████████████······························   461.1 ms  (3.1x)
+  Chunked     ██████······································   211.7 ms  (6.8x)
 ```
 
 ![benchmark chart](bench.png)
@@ -138,21 +138,36 @@ The combined parser runs one compiled regex over a line and pulls fields out by
 position. The JSON parser (`encoding/json`) instead matches struct tags onto a
 nested struct via **reflection** at runtime, and copies the line into a fresh
 `[]byte` to decode. Reflection plus those extra copies cost real time — measured
-on the *same* logical record (`BenchmarkParse*`, M2):
+on the *same* logical record (`BenchmarkParse*`) on two machines:
 
 ```
-parser microbench (one record, in-memory)
+parser microbench (one record, in-memory — Apple M2)
 
   Parse (combined)  ████████████████████████              1980 ns   3 allocs
   ParseJSON         ████████████████████████████████████  2928 ns  19 allocs
+
+parser microbench (one record, in-memory — AMD Ryzen 7 3700X)
+
+  Parse (combined)  █████████████████████                 3077 ns   3 allocs
+  ParseJSON         ████████████████████████████████████  5164 ns  19 allocs
 ```
 
-So JSON is ~1.5× slower per record and does **6× the allocations** — a good
-reminder that "just use `encoding/json`" isn't free. The fix, if the JSON path
-ever became the hot path, is a faster decoder (`goccy/go-json`, `jsoniter`) or
-hand-rolled field extraction. Compare end-to-end with `ns/line`, not raw `ns/op`
-or `MB/s`: the two fixture files differ in size and line length, so only the
-per-line figure is apples-to-apples.
+| Parser                | M2 (ns/op) | Ryzen 7 3700X (ns/op) | allocs/op | B/op |
+| --------------------- | ---------- | --------------------- | --------- | ---- |
+| Parse (combined)      | 1980       | 3077                  | 3         | 466  |
+| ParseJSON             | 2928       | 5164                  | 19        | 1160 |
+| **JSON ÷ combined**   | 1.48×      | 1.68×                 | 6.3×      | 2.5× |
+
+The absolute per-record cost is higher on the Ryzen — the M2's single core is
+just faster at this work — but the *shape* of the result is identical on both:
+JSON is ~1.5–1.7× slower per record and does **6× the allocations**. Those
+alloc/byte figures (3 vs 19 allocs, 466 vs 1160 B) come straight from the code
+path, so they don't move between machines; only the wall-clock `ns/op` does. A
+good reminder that "just use `encoding/json`" isn't free. The fix, if the JSON
+path ever became the hot path, is a faster decoder (`goccy/go-json`, `jsoniter`)
+or hand-rolled field extraction. Compare end-to-end with `ns/line`, not raw
+`ns/op` or `MB/s`: the two fixture files differ in size and line length, so only
+the per-line figure is apples-to-apples.
 
 ### Tuning the block size
 
@@ -164,11 +179,11 @@ tail. The sweep below (16 threads) shows the sweet spot sits around 1–4 MiB:
 ```
 chunk-size sweep (500k lines)
 
-  16MiB   ████████████████████████████████████████████   507.1 ms  (1.0x)
-  64KiB   ████████████████████████····················   281.2 ms  (1.8x)
-  256KiB  ██████████████████████······················   256.7 ms  (2.0x)
-  4MiB    ███████████████████·························   217.7 ms  (2.3x)
-  1MiB    ██████████████████··························   212.7 ms  (2.4x)
+  16MiB   ████████████████████████████████████████████   503.5 ms  (1.0x)
+  64KiB   █████████████████████████···················   285.9 ms  (1.8x)
+  256KiB  ████████████████████························   225.7 ms  (2.2x)
+  4MiB    ████████████████████························   225.1 ms  (2.2x)
+  1MiB    ███████████████████·························   214.5 ms  (2.3x)
 ```
 
 ![chunk-size sweep](bench-sweep.png)
