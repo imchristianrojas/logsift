@@ -141,16 +141,17 @@ nested struct via **reflection** at runtime, and copies the line into a fresh
 on the *same* logical record (`BenchmarkParse*`) on two machines:
 
 ```
-parser microbench (one record, in-memory — Apple M2)
+parser microbench (one record, in-memory — shared scale)
 
-  Parse (combined)  ████████████████████████              1980 ns   3 allocs
-  ParseJSON         ████████████████████████████████████  2928 ns  19 allocs
-
-parser microbench (one record, in-memory — AMD Ryzen 7 3700X)
-
-  Parse (combined)  █████████████████████                 3077 ns   3 allocs
-  ParseJSON         ████████████████████████████████████  5164 ns  19 allocs
+  M2    Parse (combined)  █████████████████···························  1980 ns   3 allocs
+  M2    ParseJSON         █████████████████████████···················  2928 ns  19 allocs
+  Ryzen Parse (combined)  ██████████████████████████··················  3077 ns   3 allocs
+  Ryzen ParseJSON         ████████████████████████████████████████████  5164 ns  19 allocs
 ```
+
+All four bars share one scale (longest = the slowest, Ryzen `ParseJSON`), so
+they're directly comparable: the M2 is faster on *both* parsers (shorter bars),
+and within each machine JSON is the longer bar.
 
 | Parser                | M2 (ns/op) | Ryzen 7 3700X (ns/op) | allocs/op | B/op |
 | --------------------- | ---------- | --------------------- | --------- | ---- |
