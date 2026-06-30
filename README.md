@@ -3,8 +3,8 @@
 A fast, concurrent command-line tool for parsing and summarizing
 [Common Log Format](https://en.wikipedia.org/wiki/Common_Log_Format)-style web
 access logs. Point it at a log file and it reports total traffic, status-code
-breakdowns, and the busiest paths — chewing through a 50 MB / 500k-line log in
-about a fifth of a second.
+breakdowns, and the busiest paths — chewing through a ~59 MB / 500k-line log in
+about a quarter of a second.
 
 Written in pure Go with **zero third-party dependencies** (standard library
 only).
@@ -103,7 +103,7 @@ merged at the end. See [`internal/pool/largefile.go`](internal/pool/largefile.go
 
 ## Benchmarks
 
-Three strategies are benchmarked against the same 500k-line / ~50 MB log:
+Three strategies are benchmarked against the same 500k-line / ~59 MB log:
 
 - **Sequential** — a single goroutine, line by line (the baseline).
 - **Concurrent** — a worker pool, one line per channel send.
@@ -113,9 +113,9 @@ Three strategies are benchmarked against the same 500k-line / ~50 MB log:
 ```
 logsift: 500k-line access log
 
-  Sequential  ████████████████████████████████████████████    1.448 s  (1.0x)
-  Concurrent  ██████████████······························   461.1 ms  (3.1x)
-  Chunked     ██████······································   211.7 ms  (6.8x)
+  Sequential  ████████████████████████████████████████████    1.636 s  (1.0x)
+  Concurrent  ████████████································   460.4 ms  (3.6x)
+  Chunked     ██████······································   240.3 ms  (6.8x)
 ```
 
 ![benchmark chart](bench.png)
@@ -180,11 +180,11 @@ tail. The sweep below (16 threads) shows the sweet spot sits around 1–4 MiB:
 ```
 chunk-size sweep (500k lines)
 
-  16MiB   ████████████████████████████████████████████   503.5 ms  (1.0x)
-  64KiB   █████████████████████████···················   285.9 ms  (1.8x)
-  256KiB  ████████████████████························   225.7 ms  (2.2x)
-  4MiB    ████████████████████························   225.1 ms  (2.2x)
-  1MiB    ███████████████████·························   214.5 ms  (2.3x)
+  16MiB   ████████████████████████████████████████████   506.3 ms  (1.0x)
+  64KiB   ███████████████████████████·················   308.8 ms  (1.6x)
+  256KiB  ██████████████████████······················   254.4 ms  (2.0x)
+  4MiB    ████████████████████························   231.2 ms  (2.2x)
+  1MiB    ████████████████████························   229.6 ms  (2.2x)
 ```
 
 ![chunk-size sweep](bench-sweep.png)
@@ -200,9 +200,14 @@ go test -bench=BenchmarkChunkedSizes -benchmem -run='^$' -count=1 .
 The benchmark fixtures are generated (not checked in). Create them first:
 
 ```sh
-go run ./tools/createlargefile -count 1000000 -out testdata/big.log
+go run ./tools/createlargefile -count 500000 -seed 42 -out testdata/big.log
 python3 tools/genjson.py --out testdata/logs.jsonl --size 50MiB --seed 42
 ```
+
+Both generators are **seeded**, so these commands produce byte-identical
+fixtures on any machine (`big.log` → ~59 MB, sha256 `29ba09de…`). That's what
+makes the cross-machine numbers a fair comparison — everyone parses the exact
+same bytes.
 
 Then run the benchmarks:
 
