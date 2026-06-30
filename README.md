@@ -118,7 +118,6 @@ logsift: 500k-line access log (AMD Ryzen 7 3700X, 16 threads)
   Chunked     ██████······································   240.3 ms  (6.8x)
 ```
 
-![benchmark chart — Ryzen 7 3700X](bench.png)
 
 ```
 logsift: 500k-line access log (Apple M2, 8 threads)
@@ -128,7 +127,6 @@ logsift: 500k-line access log (Apple M2, 8 threads)
   Chunked     ██████████··································   229.8 ms  (4.6x)
 ```
 
-![benchmark chart — Apple M2](bench-m2.png)
 
 > Each chart's speedups are relative to *that machine's* own sequential run.
 > Your numbers will differ; run it yourself with the commands below.
