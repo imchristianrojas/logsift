@@ -111,17 +111,43 @@ Three strategies are benchmarked against the same 500k-line / ~59 MB log:
   channel sends into a few thousand big ones.
 
 ```
-logsift: 500k-line access log
+logsift: 500k-line access log (AMD Ryzen 7 3700X, 16 threads)
 
   Sequential  ████████████████████████████████████████████    1.636 s  (1.0x)
   Concurrent  ████████████································   460.4 ms  (3.6x)
   Chunked     ██████······································   240.3 ms  (6.8x)
 ```
 
-![benchmark chart](bench.png)
+![benchmark chart — Ryzen 7 3700X](bench.png)
 
-> Measured on an AMD Ryzen 7 3700X (16 threads). Your numbers will differ; run
-> it yourself with the commands below.
+```
+logsift: 500k-line access log (Apple M2, 8 threads)
+
+  Sequential  ████████████████████████████████████████████    1.049 s  (1.0x)
+  Concurrent  ████████████████····························   374.0 ms  (2.8x)
+  Chunked     ██████████··································   229.8 ms  (4.6x)
+```
+
+![benchmark chart — Apple M2](bench-m2.png)
+
+> Each chart's speedups are relative to *that machine's* own sequential run.
+> Your numbers will differ; run it yourself with the commands below.
+
+The same byte-identical fixture (`tools/createlargefile`, fixed seed) runs on
+both, so this is a fair cross-machine read:
+
+| Strategy   | Ryzen 7 3700X (16t) | Apple M2 (8t) | M2 ÷ Ryzen |
+| ---------- | ------------------- | ------------- | ---------- |
+| Sequential | 1.636 s             | 1.049 s       | 0.64×      |
+| Concurrent | 460.4 ms            | 374.0 ms      | 0.81×      |
+| Chunked    | 240.3 ms            | 229.8 ms      | 0.96×      |
+
+Two stories sit on top of each other. **Single-core**, the M2 is far ahead — its
+sequential run is 0.64× the Ryzen's wall time (~1.6× faster per line). **Scaling**,
+the Ryzen pulls back: 16 threads take chunked to 6.8× over its own baseline,
+while the M2's 8 cores manage 4.6×. The two effects nearly cancel — the M2's
+stronger cores almost exactly offset the Ryzen's thread count, landing both at
+~230–240 ms chunked (M2 still a hair ahead, 0.96×).
 
 ### Why chunked wins
 
