@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
+	"time"
 )
 
 func main() {
@@ -30,19 +32,23 @@ func main() {
 	methods := []string{"GET", "GET", "GET", "POST", "PUT"} // weighted toward GET
 	statuses := []int{200, 200, 200, 200, 404, 500, 301}    // weighted toward 200
 
+	// Same layout string as the parser (internal/parser/parser.go) — they must match.
+	const layout = "02/Jan/2006:15:04:05 -0700"
+	ts := time.Now()
+
 	for i := 0; i < *count; i++ {
-		// Build ONE valid Nginx combined-format line and write it.
-		// Format reminder:
-		// IP - - [02/Jan/2006:15:04:05 -0700] "METHOD PATH HTTP/1.1" STATUS BYTES "REFERER" "UA"
-		//
-		// - random IP: fmt.Sprintf("%d.%d.%d.%d", rand.Intn(256), ...)
-		// - timestamp: time.Now().Format("02/Jan/2006:15:04:05 -0700")
-		//   (same layout string as your parser — they must match!)
-		// - method, path, status: pick randomly from the pools above
-		// - bytes: rand.Intn(some range)
-		// - referer/UA: can be fixed strings, doesn't matter for benchmarking
-		//
-		// Write it with fmt.Fprintf(w, "...\n", ...) — don't forget the \n
+		ip := fmt.Sprintf("%d.%d.%d.%d", rand.Intn(256), rand.Intn(256), rand.Intn(256), rand.Intn(256))
+		ts = ts.Add(time.Second)
+		fmt.Fprintf(w, "%s - - [%s] \"%s %s HTTP/1.1\" %d %d \"%s\" \"%s\"\n",
+			ip,
+			ts.Format(layout),
+			methods[rand.Intn(len(methods))],
+			paths[rand.Intn(len(paths))],
+			statuses[rand.Intn(len(statuses))],
+			rand.Intn(50000),
+			"https://example.com",
+			"Mozilla/5.0",
+		)
 	}
 
 	fmt.Printf("Wrote %d lines to %s\n", *count, *out)

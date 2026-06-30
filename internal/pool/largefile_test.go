@@ -3,6 +3,8 @@ package pool
 import (
 	"strings"
 	"testing"
+
+	"github.com/imchristianrojas/logsift/internal/parser"
 )
 
 // Three good lines (statuses 200, 404, 200) and one unparseable line.
@@ -21,7 +23,7 @@ func TestRunChunked_BoundaryAndWorkers(t *testing.T) {
 
 	for _, cs := range chunkSizes {
 		for _, w := range workerCounts {
-			stats, err := runChunked(strings.NewReader(sampleLog), w, cs)
+			stats, err := runChunked(strings.NewReader(sampleLog), w, cs, parser.Parse)
 			if err != nil {
 				t.Fatalf("chunkSize=%d workers=%d: unexpected error: %v", cs, w, err)
 			}
@@ -49,7 +51,7 @@ func TestRunChunked_BoundaryAndWorkers(t *testing.T) {
 // multiple reads before the next newline appears.
 func TestRunChunked_NoTrailingNewline(t *testing.T) {
 	input := strings.TrimRight(sampleLog, "\n") // drop the final newline
-	stats, err := runChunked(strings.NewReader(input), 2, 4)
+	stats, err := runChunked(strings.NewReader(input), 2, 4, parser.Parse)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -1,0 +1,9 @@
+# Compiled binary
+/logsift
+
+# Generated benchmark fixtures (recreate with tools/createlargefile + tools/genjson.py)
+/testdata/
+
+# Go build/test artifacts
+*.test
+*.out

@@ -20,15 +20,16 @@ go run . --file access.log
 ## Usage
 
 ```sh
-logsift --file <path> [--format table|text|json] [--workers N]
+logsift --file <path> [--input-format combined|json] [--format table|text|json] [--workers N]
 ```
 
-| Flag           | Default            | Description                                                  |
-| -------------- | ------------------ | ----------------------------------------------------------- |
-| `--file`       | *(required)*       | Path to the log file to analyze.                            |
-| `--format`     | `table`            | Output format: `table`, `text`, or `json`.                  |
-| `--workers`    | `runtime.NumCPU()` | Number of parser goroutines.                                |
-| `--chunk-size` | `1MiB`             | Block size for the reader (e.g. `256KiB`, `1MiB`, `4MiB`). |
+| Flag             | Default            | Description                                                    |
+| ---------------- | ------------------ | ------------------------------------------------------------- |
+| `--file`         | *(required)*       | Path to the log file to analyze.                              |
+| `--input-format` | `combined`         | Input log format: `combined` (regex) or `json` (Caddy-style). |
+| `--format`       | `table`            | Output format: `table`, `text`, or `json`.                    |
+| `--workers`      | `runtime.NumCPU()` | Number of parser goroutines.                                  |
+| `--chunk-size`   | `1MiB`             | Block size for the reader (e.g. `256KiB`, `1MiB`, `4MiB`).    |
 
 ### Example
 
@@ -57,14 +58,23 @@ PATH            COUNT
 
 ## Expected log format
 
-Each line is matched against the combined log format:
+With `--input-format combined` (the default), each line is matched against the
+combined log format:
 
 ```
 127.0.0.1 - - [10/Oct/2025:13:55:36 -0700] "GET /api/users HTTP/1.1" 200 1534 "https://example.com" "Mozilla/5.0"
 ```
 
-Lines that don't match are counted under **Bad lines** rather than aborting the
-run, so a few malformed entries won't stop you from analyzing the rest.
+With `--input-format json`, each line is a nested [Caddy-style](https://caddyserver.com/docs/caddyfile/directives/log)
+JSON access-log object (one JSON object per line, `time_format: rfc3339`):
+
+```json
+{"ts":"2025-10-10T13:55:36Z","request":{"remote_ip":"127.0.0.1","proto":"HTTP/1.1","method":"GET","uri":"/api/users","headers":{"User-Agent":["Mozilla/5.0"],"Referer":["https://example.com"]}},"status":200,"size":1534}
+```
+
+Either way, lines that don't match (or JSON that's malformed or missing required
+fields) are counted under **Bad lines** rather than aborting the run, so a few
+malformed entries won't stop you from analyzing the rest.
 
 ## How it works
 
@@ -85,7 +95,7 @@ merged at the end. See [`internal/pool/largefile.go`](internal/pool/largefile.go
 | Path                       | Responsibility                                            |
 | -------------------------- | --------------------------------------------------------- |
 | `main.go`                  | Flag parsing and wiring.                                  |
-| `internal/parser`          | Parse one log line into a `LogEntry`.                     |
+| `internal/parser`          | Parse one log line into a `LogEntry` (`Parse` = regex/combined, `ParseJSON` = JSON). |
 | `internal/aggregator`      | Accumulate and merge `Stats`.                             |
 | `internal/pool`            | Concurrency strategies (`Run`, `RunChunked`).             |
 | `internal/output`          | Render `Stats` as table / text / JSON.                    |
@@ -122,6 +132,28 @@ single producer goroutine. `Chunked` sends one ~1 MiB block (~10k lines) per op
 (~50 handoffs) and pushes the line-splitting *into* the parallel workers. Fewer
 handoffs plus more parallelized work is the whole speedup.
 
+### Combined vs JSON parsing
+
+The combined parser runs one compiled regex over a line and pulls fields out by
+position. The JSON parser (`encoding/json`) instead matches struct tags onto a
+nested struct via **reflection** at runtime, and copies the line into a fresh
+`[]byte` to decode. Reflection plus those extra copies cost real time — measured
+on the *same* logical record (`BenchmarkParse*`, M2):
+
+```
+parser microbench (one record, in-memory)
+
+  Parse (combined)  ████████████████████████              1980 ns   3 allocs
+  ParseJSON         ████████████████████████████████████  2928 ns  19 allocs
+```
+
+So JSON is ~1.5× slower per record and does **6× the allocations** — a good
+reminder that "just use `encoding/json`" isn't free. The fix, if the JSON path
+ever became the hot path, is a faster decoder (`goccy/go-json`, `jsoniter`) or
+hand-rolled field extraction. Compare end-to-end with `ns/line`, not raw `ns/op`
+or `MB/s`: the two fixture files differ in size and line length, so only the
+per-line figure is apples-to-apples.
+
 ### Tuning the block size
 
 `--chunk-size` controls that block. It's a trade-off, not a "bigger is better"
@@ -148,6 +180,15 @@ go test -bench=BenchmarkChunkedSizes -benchmem -run='^$' -count=1 .
 ```
 
 ### Reproducing
+
+The benchmark fixtures are generated (not checked in). Create them first:
+
+```sh
+go run ./tools/createlargefile -count 1000000 -out testdata/big.log
+python3 tools/genjson.py --out testdata/logs.jsonl --size 50MiB --seed 42
+```
+
+Then run the benchmarks:
 
 ```sh
 go test -bench=. -benchmem -run='^$' -count=1 .

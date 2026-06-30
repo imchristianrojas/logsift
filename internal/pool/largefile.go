@@ -20,15 +20,15 @@ const defaultChunkSize = 1 << 20 // 1 MiB
 // Run it sends whole blocks of bytes (many lines at once) over the channel
 // instead of one line at a time. For very large files this turns millions of
 // tiny channel sends into a few thousand big ones, which is a large speedup.
-func RunChunked(path string, workers int) (*aggregator.Stats, error) {
-	return RunChunkedSize(path, workers, defaultChunkSize)
+func RunChunked(path string, workers int, parse parser.ParseFunc) (*aggregator.Stats, error) {
+	return RunChunkedSize(path, workers, defaultChunkSize, parse)
 }
 
 // RunChunkedSize is RunChunked with an explicit block size. A chunkSize <= 0
 // falls back to defaultChunkSize. Larger blocks mean fewer, bigger channel
 // sends (less overhead) but fewer units to spread across workers (worse load
 // balancing at the tail); see the benchmark sweep in BenchmarkChunkedSizes.
-func RunChunkedSize(path string, workers, chunkSize int) (*aggregator.Stats, error) {
+func RunChunkedSize(path string, workers, chunkSize int, parse parser.ParseFunc) (*aggregator.Stats, error) {
 	if chunkSize <= 0 {
 		chunkSize = defaultChunkSize
 	}
@@ -38,13 +38,13 @@ func RunChunkedSize(path string, workers, chunkSize int) (*aggregator.Stats, err
 	}
 	defer f.Close()
 
-	return runChunked(f, workers, chunkSize)
+	return runChunked(f, workers, chunkSize, parse)
 }
 
 // runChunked is the testable core: it reads from any io.Reader and takes an
 // explicit chunkSize so tests can use a tiny size to force lines to be split
 // across block boundaries (the part that's easy to get wrong).
-func runChunked(r io.Reader, workers int, chunkSize int) (*aggregator.Stats, error) {
+func runChunked(r io.Reader, workers int, chunkSize int, parse parser.ParseFunc) (*aggregator.Stats, error) {
 	jobs := make(chan []byte, workers)               // blocks of complete lines
 	results := make(chan *aggregator.Stats, workers) // one final Stats per worker
 
@@ -59,7 +59,7 @@ func runChunked(r io.Reader, workers int, chunkSize int) (*aggregator.Stats, err
 			defer wg.Done()
 			local := aggregator.New()
 			for block := range jobs {
-				processBlock(block, local)
+				processBlock(block, local, parse)
 			}
 			results <- local
 		}()
@@ -138,7 +138,7 @@ func readBlocks(r io.Reader, chunkSize int, jobs chan<- []byte) error {
 
 // processBlock splits a block of bytes into individual lines and folds each one
 // into stats.
-func processBlock(block []byte, stats *aggregator.Stats) {
+func processBlock(block []byte, stats *aggregator.Stats, parse parser.ParseFunc) {
 	for len(block) > 0 {
 		var line []byte
 		if i := bytes.IndexByte(block, '\n'); i >= 0 {
@@ -153,7 +153,7 @@ func processBlock(block []byte, stats *aggregator.Stats) {
 			continue
 		}
 
-		entry, err := parser.Parse(string(line))
+		entry, err := parse(string(line))
 		if err != nil {
 			stats.AddBadLine()
 		} else {

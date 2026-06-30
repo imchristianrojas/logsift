@@ -21,6 +21,12 @@ type LogEntry struct {
 	UserAgent string
 }
 
+// ParseFunc is the shape every parser shares. Both Parse (combined) and
+// ParseJSON satisfy it, so main.go can pick one at runtime and hand it to the
+// worker pool — the seam that lets us A/B-benchmark regex vs JSON over the
+// same machinery.
+type ParseFunc func(line string) (*LogEntry, error)
+
 func parseTimestamp(timestamp string) (time.Time, error) {
 	layout := "02/Jan/2006:15:04:05 -0700"
 	return time.Parse(layout, timestamp) // Parse the timestamp string into a time.Time object

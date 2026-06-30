@@ -9,7 +9,7 @@ import (
 	"github.com/imchristianrojas/logsift/internal/parser"
 )
 
-func Run(path string, workers int) (*aggregator.Stats, error) { // Run processes the log file at the given path using a pool of worker goroutines and returns aggregated statistics.
+func Run(path string, workers int, parse parser.ParseFunc) (*aggregator.Stats, error) { // Run processes the log file at the given path using a pool of worker goroutines and returns aggregated statistics.
 	logFile, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func Run(path string, workers int) (*aggregator.Stats, error) { // Run processes
 			defer wg.Done() // Ensure that we call Done() when the goroutine finishes
 			localStats := aggregator.New()
 			for line := range jobs {
-				entry, err := parser.Parse(line)
+				entry, err := parse(line)
 				if err != nil {
 					localStats.AddBadLine()
 				} else {

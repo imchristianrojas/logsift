@@ -53,6 +53,7 @@ func main() {
 	file := flag.String("file", "", "path to log file (required)")
 	workers := flag.Int("workers", 0, "number of workers goroutines to use (default: runtime.NumCPU())") //NumCPU returns the number of logical CPUs usable by the current process.
 	format := flag.String("format", "table", "output format (default: table)")
+	inputFormat := flag.String("input-format", "combined", "input log format: combined or json")
 	chunkSize := flag.String("chunk-size", "1MiB", "block size for the chunked reader (e.g. 256KiB, 1MiB, 4MiB)")
 
 	flag.Parse()
@@ -77,10 +78,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Pick the parser for the input format. Both satisfy parser.ParseFunc, so
+	// the pool below is identical regardless of which one we hand it.
+	var parse parser.ParseFunc
+	switch *inputFormat {
+	case "combined":
+		parse = parser.Parse
+	case "json":
+		parse = parser.ParseJSON
+	default:
+		fmt.Fprintln(os.Stderr, "Error: --input-format must be 'combined' or 'json'")
+		os.Exit(1)
+	}
+
 	// RunChunkedSize is the large-file path: it reads the file in fixed byte
 	// blocks and parses them across `workers` goroutines. See
 	// internal/pool/largefile.go.
-	stats, err := pool.RunChunkedSize(*file, *workers, chunkBytes)
+	stats, err := pool.RunChunkedSize(*file, *workers, chunkBytes, parse)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
@@ -92,7 +106,7 @@ func main() {
 	}
 }
 
-func runSequential(path string) (*aggregator.Stats, error) {
+func runSequential(path string, parse parser.ParseFunc) (*aggregator.Stats, error) {
 	logFile, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening log file: %w", err)
@@ -104,7 +118,7 @@ func runSequential(path string) (*aggregator.Stats, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		entry, err := parser.Parse(line)
+		entry, err := parse(line)
 		if err != nil {
 			stats.AddBadLine()
 			continue
